@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Mic Input</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 0;
+      padding: 24px;
+      background: #f6f8fb;
+      color: #0f172a;
+      text-align: center;
+    }
+    .wrap {
+      max-width: 420px;
+      margin: 0 auto;
+      background: white;
+      border: 1px solid #d4dde6;
+      border-radius: 12px;
+      padding: 24px;
+      box-shadow: 0 8px 30px rgba(0,0,0,0.08);
+    }
+    button {
+      border: none;
+      border-radius: 10px;
+      padding: 14px 18px;
+      font-size: 16px;
+      font-weight: 700;
+      cursor: pointer;
+      margin: 8px;
+    }
+    .start { background: #1e3a5f; color: white; }
+    .stop  { background: #e2e8f0; color: #0f172a; }
+    .status {
+      margin-top: 18px;
+      font-size: 14px;
+      color: #475569;
+      min-height: 22px;
+    }
+    .heard {
+      margin-top: 18px;
+      padding: 12px;
+      background: #f8fafc;
+      border: 1px solid #cbd5e1;
+      border-radius: 8px;
+      min-height: 50px;
+      white-space: pre-wrap;
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h2>Voice Search</h2>
+    <p>Tap start, allow microphone, then speak your search.</p>
+
+    <button class="start" id="startBtn">Start Listening</button>
+    <button class="stop" id="stopBtn">Stop</button>
+
+    <div class="status" id="status">Ready</div>
+    <div class="heard" id="heard">...</div>
+  </div>
+
+  <script>
+    let recognition = null;
+    let started = false;
+
+    const statusEl = document.getElementById('status');
+    const heardEl  = document.getElementById('heard');
+
+    function setStatus(txt) {
+      statusEl.textContent = txt;
+      console.log('STATUS:', txt);
+    }
+
+    function sendToParent(payload) {
+      if (window.opener && !window.opener.closed) {
+        // during testing, '*' is easiest
+        // after testing, replace '*' with your exact Apps Script origin
+        window.opener.postMessage(payload, '*');
+      }
+    }
+
+    async function startMic() {
+      try {
+        setStatus('Checking microphone permission...');
+
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        stream.getTracks().forEach(track => track.stop());
+
+        const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+        if (!SR) {
+          throw new Error('SpeechRecognition not supported in this browser');
+        }
+
+        recognition = new SR();
+        recognition.lang = 'en-US';
+        recognition.continuous = false;
+        recognition.interimResults = true;
+        recognition.maxAlternatives = 1;
+
+        recognition.onstart = () => {
+          started = true;
+          setStatus('Listening...');
+        };
+
+        recognition.onresult = (event) => {
+          let transcript = '';
+          for (let i = event.resultIndex; i < event.results.length; i++) {
+            transcript += event.results[i][0].transcript;
+          }
+
+          heardEl.textContent = transcript;
+
+          const last = event.results[event.results.length - 1];
+          if (last.isFinal) {
+            setStatus('Final result received');
+            sendToParent({
+              type: 'VOICE_RESULT',
+              transcript: transcript
+            });
+            setTimeout(() => window.close(), 250);
+          }
+        };
+
+        recognition.onerror = (event) => {
+          console.error('Speech error:', event.error);
+          setStatus('Error: ' + event.error);
+
+          sendToParent({
+            type: 'VOICE_ERROR',
+            error: event.error,
+            details: 'SpeechRecognition error'
+          });
+        };
+
+        recognition.onend = () => {
+          if (started) {
+            setStatus('Stopped');
+            sendToParent({ type: 'VOICE_CLOSED' });
+          }
+        };
+
+        recognition.start();
+
+      } catch (err) {
+        console.error('Mic failed:', err);
+        setStatus('Mic failed: ' + (err.message || err.name || 'unknown error'));
+
+        sendToParent({
+          type: 'VOICE_ERROR',
+          error: err.name || 'MIC_ERROR',
+          details: err.message || ''
+        });
+      }
+    }
+
+    function stopMic() {
+      try {
+        if (recognition) recognition.stop();
+      } catch (e) {
+        console.error(e);
+      }
+      sendToParent({ type: 'VOICE_CLOSED' });
+      window.close();
+    }
+
+    document.getElementById('startBtn').addEventListener('click', startMic);
+    document.getElementById('stopBtn').addEventListener('click', stopMic);
+
+    window.addEventListener('beforeunload', function () {
+      sendToParent({ type: 'VOICE_CLOSED' });
+    });
+  </script>
+</body>
+</html>
