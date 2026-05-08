@@ -1,189 +1,151 @@
 <!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Voice Search</title>
-  <style>
-    body {
-      font-family: Arial, sans-serif;
-      margin: 0;
-      padding: 20px;
-      background: #f6f8fb;
-      color: #0f172a;
-      text-align: center;
-    }
-    .wrap {
-      max-width: 420px;
-      margin: 0 auto;
-      background: white;
-      border: 1px solid #d4dde6;
-      border-radius: 12px;
-      padding: 24px;
-      box-shadow: 0 8px 30px rgba(0,0,0,0.08);
-    }
-    .status {
-      font-size: 15px;
-      margin-top: 12px;
-      min-height: 24px;
-    }
-    .heard {
-      margin-top: 16px;
-      padding: 12px;
-      background: #f8fafc;
-      border: 1px solid #cbd5e1;
-      border-radius: 8px;
-      min-height: 48px;
-      white-space: pre-wrap;
-    }
-    .stop {
-      margin-top: 18px;
-      border: none;
-      border-radius: 10px;
-      padding: 14px 18px;
-      font-size: 16px;
-      font-weight: 700;
-      cursor: pointer;
-      background: #e2e8f0;
-      color: #0f172a;
-      width: 100%;
-    }
-  </style>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<style>
+  body {
+    margin: 0;
+    background: #0C0F14;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    font-family: sans-serif;
+  }
+  .mic-ui {
+    text-align: center;
+    color: #00C9A7;
+  }
+  .mic-btn {
+    width: 80px; height: 80px;
+    border-radius: 50%;
+    background: rgba(0,201,167,.15);
+    border: 2px solid #00C9A7;
+    color: #00C9A7;
+    font-size: 32px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin: 0 auto 16px;
+    transition: all .2s;
+  }
+  .mic-btn.listening {
+    background: rgba(255,77,106,.15);
+    border-color: #FF4D6A;
+    color: #FF4D6A;
+    animation: pulse 1s infinite;
+  }
+  @keyframes pulse {
+    0%,100% { box-shadow: 0 0 0 0 rgba(255,77,106,.4); }
+    50%      { box-shadow: 0 0 0 12px rgba(255,77,106,0); }
+  }
+  .status {
+    font-size: 13px;
+    color: #7A8AA0;
+    margin-top: 8px;
+  }
+  .transcript {
+    font-size: 14px;
+    color: #E8EDF5;
+    margin-top: 12px;
+    padding: 0 20px;
+    min-height: 40px;
+    line-height: 1.5;
+  }
+</style>
 </head>
 <body>
-  <div class="wrap">
-    <h2>Listening…</h2>
-    <div class="status" id="status">Opening microphone…</div>
-    <div class="heard" id="heard">Say item, bay, or control number</div>
-    <button class="stop" id="stopBtn">Cancel</button>
-  </div>
+<div class="mic-ui">
+  <div class="mic-btn" id="micBtn">&#127908;</div>
+  <div class="status" id="status">Tap to speak</div>
+  <div class="transcript" id="transcript"></div>
+</div>
 
-  <script>
-    let recognition = null;
-    let finalTranscript = '';
-    let hasSentResult = false;
+<script>
+var rec       = null;
+var listening = false;
+var fullText  = '';
 
-    const statusEl = document.getElementById('status');
-    const heardEl  = document.getElementById('heard');
+var SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
+var micBtn    = document.getElementById('micBtn');
+var status    = document.getElementById('status');
+var transcript= document.getElementById('transcript');
 
-    function setStatus(text) {
-      statusEl.textContent = text;
-      console.log(text);
-    }
+// Listen for commands from parent GAS frame
+window.addEventListener('message', function(e) {
+  if (e.data === 'start') startListening();
+  if (e.data === 'stop')  stopListening();
+});
 
-    function sendToParent(payload) {
-      if (window.opener && !window.opener.closed) {
-        window.opener.postMessage(payload, '*');
+micBtn.addEventListener('click', function() {
+  listening ? stopListening() : startListening();
+});
+
+function startListening() {
+  if (!SpeechRec) {
+    status.textContent = 'Not supported on this browser';
+    return;
+  }
+  fullText  = '';
+  rec       = new SpeechRec();
+  rec.continuous      = true;
+  rec.interimResults  = true;
+  rec.lang            = 'en-US';
+
+  rec.onstart = function() {
+    listening = true;
+    micBtn.classList.add('listening');
+    micBtn.innerHTML = '&#9679;';
+    status.textContent = 'Listening — tap to stop';
+  };
+
+  rec.onresult = function(ev) {
+    var interim = '';
+    for (var i = ev.resultIndex; i < ev.results.length; i++) {
+      if (ev.results[i].isFinal) {
+        fullText += ev.results[i][0].transcript + ' ';
+      } else {
+        interim += ev.results[i][0].transcript;
       }
     }
+    transcript.textContent = fullText + interim;
 
-    function closePopup(type = 'VOICE_CLOSED') {
-      sendToParent({ type });
-      setTimeout(() => window.close(), 100);
-    }
+    // Send interim results back to parent continuously
+    window.parent.postMessage({
+      type: 'transcript',
+      text: fullText + interim,
+      final: false
+    }, '*');
+  };
 
-    async function startMic() {
-      try {
-        setStatus('Requesting microphone access...');
+  rec.onend = function() {
+    // Send final result
+    window.parent.postMessage({
+      type: 'transcript',
+      text: fullText.trim(),
+      final: true
+    }, '*');
+    stopListening();
+  };
 
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        stream.getTracks().forEach(track => track.stop());
+  rec.onerror = function(e) {
+    status.textContent = 'Error: ' + e.error;
+    window.parent.postMessage({ type: 'error', error: e.error }, '*');
+    stopListening();
+  };
 
-        const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-        if (!SR) {
-          throw new Error('Speech recognition is not supported in this browser');
-        }
+  rec.start();
+}
 
-        recognition = new SR();
-        recognition.lang = 'en-US';
-        recognition.continuous = false;
-        recognition.interimResults = true;
-        recognition.maxAlternatives = 1;
-
-        recognition.onstart = () => {
-          setStatus('Listening now...');
-        };
-
-        recognition.onresult = (event) => {
-          let transcript = '';
-          let isFinal = false;
-
-          for (let i = event.resultIndex; i < event.results.length; i++) {
-            transcript += event.results[i][0].transcript;
-            if (event.results[i].isFinal) isFinal = true;
-          }
-
-          heardEl.textContent = transcript || 'Listening...';
-
-          if (isFinal && transcript.trim() && !hasSentResult) {
-            hasSentResult = true;
-            finalTranscript = transcript.trim();
-
-            setStatus('Got it. Sending result...');
-            sendToParent({
-              type: 'VOICE_RESULT',
-              transcript: finalTranscript
-            });
-
-            try {
-              recognition.stop();
-            } catch (e) {}
-
-            setTimeout(() => window.close(), 250);
-          }
-        };
-
-        recognition.onerror = (event) => {
-          console.error('Speech error:', event.error);
-
-          sendToParent({
-            type: 'VOICE_ERROR',
-            error: event.error,
-            details: 'SpeechRecognition error'
-          });
-
-          setStatus('Error: ' + event.error);
-          setTimeout(() => window.close(), 800);
-        };
-
-        recognition.onend = () => {
-          if (!hasSentResult) {
-            sendToParent({
-              type: 'VOICE_ERROR',
-              error: 'NO_SPEECH',
-              details: 'No final transcript received'
-            });
-            setTimeout(() => window.close(), 400);
-          }
-        };
-
-        recognition.start();
-
-      } catch (err) {
-        console.error('Mic failed:', err);
-        sendToParent({
-          type: 'VOICE_ERROR',
-          error: err.name || 'MIC_ERROR',
-          details: err.message || ''
-        });
-        setStatus('Mic failed: ' + (err.message || err.name || 'unknown error'));
-        setTimeout(() => window.close(), 1200);
-      }
-    }
-
-    document.getElementById('stopBtn').addEventListener('click', () => {
-      try {
-        if (recognition) recognition.stop();
-      } catch (e) {}
-      closePopup('VOICE_CLOSED');
-    });
-
-    window.addEventListener('beforeunload', function () {
-      sendToParent({ type: 'VOICE_CLOSED' });
-    });
-
-    // Auto-start immediately when popup opens
-    window.addEventListener('load', startMic);
-  </script>
+function stopListening() {
+  listening = false;
+  micBtn.classList.remove('listening');
+  micBtn.innerHTML = '&#127908;';
+  status.textContent = 'Tap to speak';
+  if (rec) { try { rec.stop(); } catch(e){} rec = null; }
+}
+</script>
 </body>
 </html>
