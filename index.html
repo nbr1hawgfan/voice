@@ -135,10 +135,14 @@ function stop() {
 
 function send(text, final) {
   try {
-    window.parent.postMessage(
-      { type: 'transcript', text: text, final: final },
-      '*'
-    );
+    // window.opener for popups, window.parent for iframes
+    var target = window.opener || window.parent;
+    if (target) {
+      target.postMessage(
+        { type: 'transcript', text: text, final: final },
+        '*'
+      );
+    }
   } catch(e) {}
 }
 </script>
