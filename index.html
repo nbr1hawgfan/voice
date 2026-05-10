@@ -4,143 +4,142 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <style>
-  body {
-    margin: 0;
-    background: #0C0F14;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    min-height: 100vh;
-    font-family: sans-serif;
-  }
-  .mic-ui {
-    text-align: center;
-    color: #00C9A7;
-  }
-  .mic-btn {
-    width: 80px; height: 80px;
-    border-radius: 50%;
-    background: rgba(0,201,167,.15);
-    border: 2px solid #00C9A7;
-    color: #00C9A7;
-    font-size: 32px;
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    margin: 0 auto 16px;
-    transition: all .2s;
-  }
-  .mic-btn.listening {
-    background: rgba(255,77,106,.15);
-    border-color: #FF4D6A;
-    color: #FF4D6A;
-    animation: pulse 1s infinite;
-  }
-  @keyframes pulse {
-    0%,100% { box-shadow: 0 0 0 0 rgba(255,77,106,.4); }
-    50%      { box-shadow: 0 0 0 12px rgba(255,77,106,0); }
-  }
-  .status {
-    font-size: 13px;
-    color: #7A8AA0;
-    margin-top: 8px;
-  }
-  .transcript {
-    font-size: 14px;
-    color: #E8EDF5;
-    margin-top: 12px;
-    padding: 0 20px;
-    min-height: 40px;
-    line-height: 1.5;
-  }
+* { margin:0; padding:0; box-sizing:border-box; }
+body {
+  background: #0C0F14;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  font-family: sans-serif;
+}
+.wrap { text-align: center; padding: 20px; width: 100%; }
+.mic-btn {
+  width: 90px; height: 90px;
+  border-radius: 50%;
+  background: rgba(0,201,167,.15);
+  border: 2px solid #00C9A7;
+  color: #00C9A7;
+  font-size: 36px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0 auto 20px;
+  transition: all .2s;
+}
+.mic-btn.on {
+  background: rgba(255,77,106,.15);
+  border-color: #FF4D6A;
+  color: #FF4D6A;
+}
+.status { font-size: 14px; color: #7A8AA0; margin-bottom: 12px; }
+.result { font-size: 16px; color: #E8EDF5; min-height: 40px; padding: 0 16px; line-height: 1.5; }
+.err { font-size: 12px; color: #FF4D6A; margin-top: 10px; }
 </style>
 </head>
 <body>
-<div class="mic-ui">
-  <div class="mic-btn" id="micBtn">&#127908;</div>
+<div class="wrap">
+  <div class="mic-btn" id="btn">&#127908;</div>
   <div class="status" id="status">Tap to speak</div>
-  <div class="transcript" id="transcript"></div>
+  <div class="result" id="result"></div>
+  <div class="err" id="err"></div>
 </div>
-
 <script>
-var rec       = null;
-var listening = false;
-var fullText  = '';
+var rec = null;
+var going = false;
+var full = '';
 
-var SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
-var micBtn    = document.getElementById('micBtn');
-var status    = document.getElementById('status');
-var transcript= document.getElementById('transcript');
+var btn    = document.getElementById('btn');
+var status = document.getElementById('status');
+var result = document.getElementById('result');
+var err    = document.getElementById('err');
 
-// Listen for commands from parent GAS frame
-window.addEventListener('message', function(e) {
-  if (e.data === 'start') startListening();
-  if (e.data === 'stop')  stopListening();
-});
+var SR = window.SpeechRecognition || window.webkitSpeechRecognition;
 
-micBtn.addEventListener('click', function() {
-  listening ? stopListening() : startListening();
-});
-
-function startListening() {
-  if (!SpeechRec) {
-    status.textContent = 'Not supported on this browser';
+btn.onclick = function() {
+  if (!SR) {
+    err.textContent = 'Speech not supported on this browser';
     return;
   }
-  fullText  = '';
-  rec       = new SpeechRec();
+  if (going) {
+    stop();
+  } else {
+    start();
+  }
+};
+
+window.addEventListener('message', function(e) {
+  if (e.data === 'start') start();
+  if (e.data === 'stop')  stop();
+});
+
+function start() {
+  full = '';
+  rec  = new SR();
   rec.continuous      = true;
   rec.interimResults  = true;
   rec.lang            = 'en-US';
 
   rec.onstart = function() {
-    listening = true;
-    micBtn.classList.add('listening');
-    micBtn.innerHTML = '&#9679;';
+    going = true;
+    btn.classList.add('on');
+    btn.innerHTML = '&#9679;';
     status.textContent = 'Listening — tap to stop';
+    err.textContent = '';
   };
 
   rec.onresult = function(ev) {
     var interim = '';
-    for (var i = ev.resultIndex; i < ev.results.length; i++) {
+    var i;
+    for (i = ev.resultIndex; i < ev.results.length; i++) {
       if (ev.results[i].isFinal) {
-        fullText += ev.results[i][0].transcript + ' ';
+        full = full + ev.results[i][0].transcript + ' ';
       } else {
-        interim += ev.results[i][0].transcript;
+        interim = interim + ev.results[i][0].transcript;
       }
     }
-    transcript.textContent = fullText + interim;
-
-    // Send interim results back to parent continuously
-    window.parent.postMessage({
-window.parent.postMessage({
-
-  rec.onend = function() {
-    // Send final result
-    window.parent.postMessage({
-      type: 'transcript',
-      text: fullText.trim(),
-      final: true
-    }, '*');
-    stopListening();
+    var display = full + interim;
+    result.textContent = display;
+    send(display, false);
   };
 
   rec.onerror = function(e) {
-    status.textContent = 'Error: ' + e.error;
-    window.parent.postMessage({ type: 'error', error: e.error }, '*');
-    stopListening();
+    err.textContent = 'Error: ' + e.error;
+    send('', true);
+    stop();
   };
 
-  rec.start();
+  rec.onend = function() {
+    send(full.trim(), true);
+    stop();
+  };
+
+  try {
+    rec.start();
+  } catch(e) {
+    err.textContent = 'Could not start: ' + e.message;
+  }
 }
 
-function stopListening() {
-  listening = false;
-  micBtn.classList.remove('listening');
-  micBtn.innerHTML = '&#127908;';
+function stop() {
+  going = false;
+  btn.classList.remove('on');
+  btn.innerHTML = '&#127908;';
   status.textContent = 'Tap to speak';
-  if (rec) { try { rec.stop(); } catch(e){} rec = null; }
+  if (rec) {
+    try { rec.stop(); } catch(e) {}
+    rec = null;
+  }
+}
+
+function send(text, final) {
+  try {
+    window.parent.postMessage(
+      { type: 'transcript', text: text, final: final },
+      '*'
+    );
+  } catch(e) {}
 }
 </script>
 </body>
