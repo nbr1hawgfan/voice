@@ -34,8 +34,9 @@ body {
   color: #FF4D6A;
 }
 .status { font-size: 14px; color: #7A8AA0; margin-bottom: 12px; }
-.result { font-size: 16px; color: #E8EDF5; min-height: 40px; padding: 0 16px; line-height: 1.5; }
+.result { font-size: 18px; color: #E8EDF5; min-height: 40px; padding: 0 16px; line-height: 1.5; font-weight: 600; }
 .err { font-size: 12px; color: #FF4D6A; margin-top: 10px; }
+.debug { font-size: 10px; color: #444; margin-top: 8px; }
 </style>
 </head>
 <body>
@@ -44,37 +45,37 @@ body {
   <div class="status" id="status">Tap to speak</div>
   <div class="result" id="result"></div>
   <div class="err" id="err"></div>
+  <div class="debug" id="debug"></div>
 </div>
 <script>
-var rec = null;
+var rec   = null;
 var going = false;
-var full = '';
+var full  = '';
 
 var btn    = document.getElementById('btn');
 var status = document.getElementById('status');
 var result = document.getElementById('result');
 var err    = document.getElementById('err');
+var debug  = document.getElementById('debug');
 
 var SR = window.SpeechRecognition || window.webkitSpeechRecognition;
 
-btn.onclick = function() {
-  if (!SR) {
-    err.textContent = 'Speech not supported on this browser';
-    return;
-  }
-  if (going) {
-    stop();
+// Auto-start when opened as popup
+window.addEventListener('load', function() {
+  debug.textContent = 'opener: ' + (window.opener ? 'YES' : 'NO') + ' | parent: ' + (window.parent !== window ? 'YES' : 'NO');
+  if (SR) {
+    setTimeout(start, 500);
   } else {
-    start();
+    err.textContent = 'Speech not supported on this browser';
   }
-};
-
-window.addEventListener('message', function(e) {
-  if (e.data === 'start') start();
-  if (e.data === 'stop')  stop();
 });
 
+btn.onclick = function() {
+  if (going) { stop(); } else { start(); }
+};
+
 function start() {
+  if (!SR) { err.textContent = 'Speech not supported'; return; }
   full = '';
   rec  = new SR();
   rec.continuous      = true;
@@ -134,16 +135,31 @@ function stop() {
 }
 
 function send(text, final) {
-  try {
-    // window.opener for popups, window.parent for iframes
-    var target = window.opener || window.parent;
-    if (target) {
-      target.postMessage(
-        { type: 'transcript', text: text, final: final },
-        '*'
-      );
+  var msg = { type: 'transcript', text: text, final: final };
+
+  // Try opener first (popup context)
+  if (window.opener && !window.opener.closed) {
+    try {
+      window.opener.postMessage(msg, '*');
+      debug.textContent = 'Sent via opener: ' + text.substring(0, 20);
+      return;
+    } catch(e) {
+      debug.textContent = 'opener failed: ' + e.message;
     }
-  } catch(e) {}
+  }
+
+  // Fall back to parent (iframe context)
+  if (window.parent && window.parent !== window) {
+    try {
+      window.parent.postMessage(msg, '*');
+      debug.textContent = 'Sent via parent: ' + text.substring(0, 20);
+      return;
+    } catch(e) {
+      debug.textContent = 'parent failed: ' + e.message;
+    }
+  }
+
+  debug.textContent = 'No target found to send message';
 }
 </script>
 </body>
