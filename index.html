@@ -114,11 +114,7 @@ function startListening() {
 
     // Send interim results back to parent continuously
     window.parent.postMessage({
-      type: 'transcript',
-      text: fullText + interim,
-      final: false
-    }, '*');
-  };
+window.parent.postMessage({
 
   rec.onend = function() {
     // Send final result
